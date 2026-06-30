@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-select=none">
+    <title>Alex's Vertical Ascent - Mobile Edition</title>
+    <style>
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            font-family: 'Segoe UI', sans-serif; 
+            background-color: #050505;
+            touch-action: none; /* Prevents default mobile zooming/scrolling */
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+        canvas { display: block; }
+        
+        /* --- ALEX GAMES WATERMARK --- */
+        #watermark {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            font-size: 24px;
+            font-weight: 900;
+            letter-spacing: 2px;
+            color: rgba(255, 255, 255, 0.18);
+            text-transform: uppercase;
+            pointer-events: none;
+            z-index: 15;
+            font-family: Arial, sans-serif;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.6);
+        }
+
+        #ui {
+            position: absolute; top: 15px; left: 15px; color: #fff;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8); pointer-events: none;
+            z-index: 10;
+        }
+        h1 { margin: 0; font-size: 18px; letter-spacing: 1px; color: #ff3366; }
+        .stat { font-size: 14px; margin-top: 3px; font-weight: bold; }
+
+        /* --- MOBILE TOUCH CONTROLS --- */
+        #joystick-container {
+            position: absolute; bottom: 30px; left: 30px;
+            width: 100px; height: 100px; background: rgba(255,255,255,0.1);
+            border: 2px solid rgba(255,255,255,0.3); border-radius: 50%;
+            z-index: 10; display: block; touch-action: none;
+        }
+        #joystick-knob {
+            position: absolute; top: 25px; left: 25px;
+            width: 50px; height: 50px; background: rgba(255, 51, 102, 0.7);
+            border-radius: 50%; border: 1px solid #fff; touch-action: none;
+        }
+        #jump-btn {
+            position: absolute; bottom: 40px; right: 140px;
+            width: 70px; height: 70px; background: rgba(0, 255, 204, 0.6);
+            border: 2px solid #fff; border-radius: 50%; z-index: 10;
+            color: white; font-weight: bold; font-size: 16px;
+            display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 0 10px rgba(0,255,204,0.3); touch-action: none;
+        }
+
+        #instructions {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.85); color: #fff; display: flex;
+            flex-direction: column; justify-content: center; align-items: center;
+            text-align: center; cursor: pointer; z-index: 20; padding: 20px; box-sizing: border-box;
+        }
+        #instructions p { font-size: 16px; color: #ccc; margin: 5px 0; }
+        .btn {
+            padding: 12px 25px; background: #ff3366; border: none;
+            color: white; font-size: 18px; font-weight: bold;
+            border-radius: 5px; cursor: pointer; margin-top: 15px;
+        }
+        #win-screen {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: radial-gradient(circle, #2c003e 0%, #000000 100%);
+            color: #fff; display: none; flex-direction: column;
+            justify-content: center; align-items: center; z-index: 30;
+        }
+        #win-screen h2 { font-size: 40px; color: #00ffcc; margin: 0; }
+    </style>
+    <!-- Three.js Engine -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+    <!-- Visible Watermark Component -->
+    <div id="watermark">Alex Games</div>
+
+    <!-- On-Screen Mobile Joystick and Controls -->
+    <div id="joystick-container"><div id="joystick-knob"></div></div>
+    <div id="jump-btn">JUMP</div>
+
+    <div id="instructions">
+        <h1>ALEX GAMES PRESENTS</h1>
+        <p>Conquer 7 brutally hard vertical parkour levels to reach the top.</p>
+        <p><b>Mobile:</b> Drag left side to Move | Swipe right side to Look | Tap JUMP</p>
+        <p><b>PC:</b> WASD to Move | Mouse to Look | Space to Jump</p>
+        <button class="btn">START RUN</button>
+    </div>
+
+    <div id="ui">
+        <h1>VERTICAL ASCENT</h1>
+        <div class="stat">Current Level: <span id="level-display">1</span> / 7</div>
+        <div class="stat" style="color: #ffcc00;">Height Checkpoint: <span id="height-display">0</span>m</div>
+    </div>
+
+    <div id="win-screen">
+        <h2>SOULMATE UNITED</h2>
+        <p style="font-size: 20px; margin-top: 15px;">Alex reached Jacqueline at the peak!</p>
+        <p style="color: #888;">You conquered all 7 levels.</p>
+    </div>
+
+    <script>
+        // --- 1. GAME SETUP & GRAPHICS ---
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x0a0f24);
+        scene.fog = new THREE.FogExp2(0x0a0f24, 0.015);
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Limits pixel ratio for performance optimization on mobile
+        renderer.shadowMap.enabled = true;
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        document.body.appendChild(renderer.domElement);
+
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
+        scene.add(ambientLight);
+
+        const dirLight = new THREE.DirectionalLight(0xff7799, 1.5);
+        dirLight.position.set(20, 100, 10);
+        scene.add(dirLight);
+
+        const gridHelper = new THREE.GridHelper(300, 60, 0xff3366, 0x223344);
+        gridHelper.position.y = -0.5;
+        scene.add(gridHelper);
+
+        // --- 2. GAME VARIABLES & PHYSICS ---
+        let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
+        let touchMoveX = 0, touchMoveY = 0; // Mobile joystick vectors
+        let canJump = false;
+        let playerVelocity = new THREE.Vector3();
+        let playerDirection = new THREE.Vector3();
+        const playerRadius = 0.8;
+        camera.position.set(0, 2, 0);
+
+        const platforms = [];
+        const surprisePlatforms = [];
+        let currentLevel = 1;
+        let isGameStarted = false;
+
+        // --- 3. HARDCORE 7-LEVEL GENERATION ---
+        const levelColors = [0x3355ff, 0x33ccff, 0x33ffaa, 0xaacc33, 0xffcc33, 0xff7733, 0xff3333];
+        
+        function createPlatform(x, y, z, w, h, d, color, isSurprise = false) {
+            const geometry = new THREE.BoxGeometry(w, h, d);
+            const material = new THREE.MeshStandardMaterial({ 
+                color: color, roughness: 0.3, metalness: 0.4,
+                emissive: color, emissiveIntensity: 0.05
+            });
+            const mesh = new THREE.Mesh(geometry, material);
+            mesh.position.set(x, y, z);
+            scene.add(mesh);
+            
+            const pObj = { mesh, x, y, z, w, h, d, isSurprise, initialX: x, speed: Math.random() * 1.5 + 1 };
+            platforms.push(pObj);
+            if(isSurprise) surprisePlatforms.push(pObj);
+        }
+
+        // Base Starting ground
+        createPlatform(0, -0.2, 0, 10, 0.4, 10, 0x222233);
+
+        let lastX = 0, lastY = 2, lastZ = -5;
+        
+        for (let lvl = 1; lvl <= 7; lvl++) {
+            for (let j = 0; j < 4; j++) {
+                // Shrinking platform boundaries per level for high difficulty scaling
+                let pWidth = Math.max(3.8 - (lvl * 0.4), 1.1); 
+                let pDepth = Math.max(3.8 - (lvl * 0.4), 1.1);
+                
+                let gapX = (Math.random() - 0.5) * (3.5 + lvl);
+                let gapZ = -(4.5 + (lvl * 0.7));
+                let gapY = 2.2 + (lvl * 0.28); 
+
+                lastX += gapX; lastY += gapY; lastZ += gapZ;
+
+                // Levels 4-7 have unpredictable moving platforms
+                let isTrap = (lvl >= 4 && j % 2 === 0); 
+                createPlatform(lastX, lastY, lastZ, pWidth, 0.5, pDepth, levelColors[lvl-1], isTrap);
+            }
+            lastZ -= 4;
+            createPlatform(lastX, lastY, lastZ, 5, 0.5, 5, 0xffffff); // Checkpoint safety block
+        }
+
+        // Peak Target Endpoint
+        const peakY = lastY + 3; const peakZ = lastZ - 8;
+        createPlatform(lastX, peakY, peakZ, 6, 0.5, 6, 0x00ffcc);
+
+        // Jacqueline NPC
+        const jacquelineGeo = new THREE.CylinderGeometry(0.3, 0.3, 1.7, 12);
+        const jacquelineMat = new THREE.MeshStandardMaterial({ color: 0xff33aa });
+        const jacqueline = new THREE.Mesh(jacquelineGeo, jacquelineMat);
+        jacqueline.position.set(lastX, peakY + 1.1, peakZ);
+        scene.add(jacqueline);
+
+        // --- 4. CONTROLS ENGINE (KEYBOARD + TOUCH MAPPING) ---
+        const instructions = document.getElementById('instructions');
+        instructions.addEventListener('click', () => {
+            instructions.style.display = 'none';
+            isGameStarted = true;
+            // Ask desktop users for pointer lock pointer safety
+            if (!('ontouchstart' in window)) {
+                document.body.requestPointerLock();
+            }
+        });
+
+        let pitch = 0, yaw = 0;
+
+        // --- DESKTOP KEYBOARD CONTROLS ---
+        document.addEventListener('mousemove', (e) => {
+            if (!isGameStarted || ('ontouchstart' in window && document.pointerLockElement !== document.body)) return;
+            yaw -= e.movementX * 0.0025;
+            pitch -= e.movementY * 0.0025;
+            pitch = Math.max(-Math.PI / 2.5, Math.min(Math.PI / 2.5, pitch));
+            camera.quaternion.setFromEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ'));
+        });
+
+        document.addEventListener('keydown', (e) => {
+            switch (e.code) {
+                case 'KeyW': moveForward = true; break;
+                case 'KeyS': moveBackward = true; break;
+                case 'KeyA': moveLeft = true; break;
+                case 'KeyD': moveRight = true; break;
+                case 'Space': triggerJump(); break;
+            }
+        });
+        document.addEventListener('keyup', (e) => {
+            switch (e.code) {
+                case 'KeyW': moveForward = false; break;
+                case 'KeyS': moveBackward = false; break;
+                case 'KeyA': moveLeft = false; break;
+                case 'KeyD': moveRight = false; break;
+            }
+        });
+
+        function triggerJump() {
+            if (canJump) {
+                playerVelocity.y += 13.0; // Heavy jump force
+                canJump = false;
+            }
+        }
+
+        // --- MOBILE TOUCH CONTROLS (JOYSTICK & SWIPE) ---
+        const joystickContainer = document.getElementById('joystick-container');
+        const joystickKnob = document.getElementById('joystick-knob');
+        const jumpBtn = document.getElementById('jump-btn');
+        
+        let joystickTouchId = null;
+        let lookTouchId = null;
+        let lastTouchX = 0, lastTouchY = 0;
+
+        // Jump tap element handler
+        jumpBtn.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            triggerJump();
+        });
+
+        window.addEventListener('touchstart', (e) => {
+            for (let i = 0; i < e.changedTouches.length; i++) {
+                let t = e.changedTouches[i];
+                // Left half of display triggers Joystick
+                if (t.clientX < window.innerWidth / 2 && joystickTouchId === null) {
+                    joystickTouchId = t.identifier;
+                    updateJoystick(t);
+                } 
+                // Right half of display triggers Camera Look Controls
+                else if (t.clientX >= window.innerWidth / 2 && lookTouchId === null && t.target !== jumpBtn) {
+                    lookTouchId = t.identifier;
+                    lastTouchX = t.clientX;
+                    lastTouchY = t.clientY;
+                }
+            }
+        }, {passive: false});
+
+        window.addEventListener('touchmove', (e) => {
+            for (let i = 0; i < e.changedTouches.length; i++) {
+                let t = e.changedTouches[i];
+                if (t.identifier === joystickTouchId) {
+                    updateJoystick(t);
+                } else if (t.identifier === lookTouchId) {
+                    let diffX = t.clientX - lastTouchX;
+                    let diffY = t.clientY - lastTouchY;
+                    
+                    yaw -= diffX * 0.005;
+                    pitch -= diffY * 0.005;
+                    pitch = Math.max(-Math.PI / 2.5, Math.min(Math.PI / 2.5, pitch));
+                    camera.quaternion.setFromEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ'));
+                    
+                    lastTouchX = t.clientX;
+                    lastTouchY = t.clientY;
+                }
+            }
+        }, {passive: false});
+
+        window.addEventListener('touchend', (e) => {
+            for (let i = 0; i < e.changedTouches.length; i++) {
+                let t = e.changedTouches[i];
+                if (t.identifier === joystickTouchId) {
+                    joystickTouchId = null;
+                    joystickKnob.style.transform = `translate(0px, 0px)`;
+                    touchMoveX = 0; touchMoveY = 0;
+                } else if (t.identifier === lookTouchId) {
+                    lookTouchId = null;
+                }
+            }
+        });
+
+        function updateJoystick(touch) {
+            let rect = joystickContainer.getBoundingClientRect();
+            let centerX = rect.left + rect.width / 2;
+            let centerY = rect.top + rect.height / 2;
+            
+            let deltaX = touch.clientX - centerX;
+            let deltaY = touch.clientY - centerY;
+            let dist = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+            let maxDist = rect.width / 2;
+
+            if (dist > maxDist) {
+                deltaX = (deltaX / dist) * maxDist;
+                deltaY = (deltaY / dist) * maxDist;
+                dist = maxDist;
+            }
+
+            joystickKnob.style.transform = `translate(${deltaX}px, ${deltaY}px)`;
+            
+            // Normalize values down between -1 and 1
+            touchMoveX = deltaX / maxDist;
+            touchMoveY = -deltaY / maxDist; // invert Y for standard forward graphics calculation
+        }
+
+        // --- 5. GAME RUNTIME TIMESTEP METHOD ---
+        const clock = new THREE.Clock();
+        
+        function animate() {
+            requestAnimationFrame(animate);
+            const delta = Math.min(clock.getDelta(), 0.1);
+
+            // Animate moving trap platforms
+            const time = clock.getElapsedTime();
+            surprisePlatforms.forEach(p => {
+                p.mesh.position.x = p.initialX + Math.sin(time * p.speed) * 3.0;
+                p.x = p.mesh.position.x;
+            });
+
+            if (isGameStarted) {
+                playerVelocity.y -= 34.0 * delta; // Heavy Gravity
+                playerVelocity.x -= playerVelocity.x * 8.0 * delta;
+                playerVelocity.z -= playerVelocity.z * 8.0 * delta;
+
+                // Combine keyboard input maps with digital touch vectors
+                let dirZ = Number(moveForward) - Number(moveBackward);
+                let dirX = Number(moveRight) - Number(moveLeft);
+                
+                if (joystickTouchId !== null) {
+                    dirX = touchMoveX;
+                    dirZ = touchMoveY;
+                }
+
+                playerDirection.z = dirZ;
+                playerDirection.x = dirX;
+                
+                // Truncate maximum velocity vector bounds
+                if (playerDirection.length() > 1) playerDirection.normalize();
+
+                const camYaw = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, yaw, 0, 'YXZ'));
+                const moveVector = new THREE.Vector3(playerDirection.x, 0, -playerDirection.z).applyQuaternion(camYaw);
+
+                if (dirX !== 0 || dirZ !== 0) {
+                    playerVelocity.x += moveVector.x * 60.0 * delta;
+                    playerVelocity.z += moveVector.z * 60.0 * delta;
+                }
+
+                camera.position.x += playerVelocity.x * delta;
+                camera.position.y += playerVelocity.y * delta;
+                camera.position.z += playerVelocity.z * delta;
+
+                // Collision bounding systems loop
+                let onObject = false;
+                for (let i = 0; i < platforms.length; i++) {
+                    let p = platforms[i];
+                    if (camera.position.x + playerRadius > p.x - p.w/2 && camera.position.x - playerRadius < p.x + p.w/2 &&
+                        camera.position.z + playerRadius > p.z - p.d/2 && camera.position.z - playerRadius < p.z + p.d/2) {
+                        if (camera.position.y - 1.8 >= p.y + p.h/2 - 0.4 && camera.position.y - 1.8 <= p.y + p.h/2 + 0.1) {
+                            if(playerVelocity.y <= 0) {
+                                playerVelocity.y = 0;
+                                camera.position.y = p.y + p.h/2 + 1.8;
+                                onObject = true; canJump = true;
+                            }
+                        }
+                    }
+                }
+
+                // If player slips and falls into the bottomless void, reset position
+                if (camera.position.y < -15) {
+                    camera.position.set(0, 2, 0);
+                    playerVelocity.set(0,0,0);
+                    yaw = 0; pitch = 0;
+                    camera.quaternion.setFromEuler(new THREE.Euler(0, 0, 0));
+                }
+
+                document.getElementById('height-display').innerText = Math.max(0, Math.floor(camera.position.y - 2));
+                
+                let calculatedLevel = Math.min(7, Math.max(1, Math.floor((camera.position.y) / 9) + 1));
+                if(calculatedLevel !== currentLevel) {
+                    currentLevel = calculatedLevel;
+                    document.getElementById('level-display').innerText = currentLevel;
+                }
+
+                // Victory check condition
+                if (camera.position.y >= peakY + 1.2 && Math.abs(camera.position.z - peakZ) < 2.2 && Math.abs(camera.position.x - lastX) < 2.2) {
+                    isGameStarted = false;
+                    document.getElementById('win-screen').style.display = 'flex';
+                }
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        animate();
+    </script>
+</body>
+</html>
